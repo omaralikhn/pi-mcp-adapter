@@ -8,12 +8,16 @@
  * Legacy plaintext entries are imported from $MCP_OAUTH_DIR/sha256-<server-hash>/tokens.json
  * when set, otherwise <Pi agent dir>/mcp-oauth/sha256-<server-hash>/tokens.json,
  * then the plaintext file is removed.
+ *
+ * On a host with no @napi-rs/keyring native binding (e.g. Android), the OS
+ * credential store cannot load at all, so reads and writes fall back to an
+ * on-disk secret file under <auth base dir>/secrets/<account>.json.
  */
 
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
-import { readFileSync, existsSync, rmSync } from 'fs';
+import { readFileSync, existsSync, rmSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { getAgentPath } from './agent-dir.ts';
@@ -37,6 +41,7 @@ const KEYRING_RECOVERY_KEYCTL_ENV = 'PI_MCP_ADAPTER_KEYRING_RECOVERY_KEYCTL';
 const KEYRING_RECOVERY_NODE_ENV = 'PI_MCP_ADAPTER_KEYRING_RECOVERY_NODE';
 const KEYRING_RECOVERY_HELPER_ENV = 'PI_MCP_ADAPTER_KEYRING_RECOVERY_HELPER';
 const TEST_LINUX_KEYRING_RECOVERY_ENV = 'PI_MCP_ADAPTER_TEST_LINUX_KEYRING_RECOVERY';
+const FILE_STORE_FALLBACK_DISABLED_ENV = 'PI_MCP_ADAPTER_DISABLE_FILE_STORE_FALLBACK';
 const AUTH_CACHE_DISABLED_ENV = 'PI_MCP_ADAPTER_DISABLE_AUTH_CACHE';
 const KEYRING_RECOVERY_TIMEOUT_MS = 10_000;
 const AUTH_CHUNK_MANIFEST_KEY = '__piMcpAdapterOAuthChunked';
@@ -232,6 +237,26 @@ const keyRevokedAuthSecretStore: AuthSecretStore = {
   },
 };
 
+function createNativeBindingMissingError(): Error {
+  return new Error(
+    'OAuth secure credential storage is unavailable. Configure the OS credential store and retry authentication.',
+    { cause: new Error('Cannot find native binding') },
+  );
+}
+
+const nativeBindingMissingAuthSecretStore: AuthSecretStore = {
+  read() {
+    testAuthSecretStoreReadCount++;
+    throw createNativeBindingMissingError();
+  },
+  write() {
+    throw createNativeBindingMissingError();
+  },
+  remove() {
+    throw createNativeBindingMissingError();
+  },
+};
+
 export function resetTestAuthSecretStore(): void {
   memoryAuthEntries.clear();
   authEntryCache.clear();
@@ -259,6 +284,7 @@ function getAuthSecretStore(): AuthSecretStore {
   if (process.env[TEST_AUTH_STORE_ENV] === 'sizelimited') return sizeLimitedAuthSecretStore;
   if (process.env[TEST_AUTH_STORE_ENV] === 'unavailable') return unavailableAuthSecretStore;
   if (process.env[TEST_AUTH_STORE_ENV] === 'keyrevoked') return keyRevokedAuthSecretStore;
+  if (process.env[TEST_AUTH_STORE_ENV] === 'nativebindingmissing') return nativeBindingMissingAuthSecretStore;
   return keyringAuthSecretStore;
 }
 
@@ -401,6 +427,43 @@ const linuxKeyringRecoveryAuthSecretStore: AuthSecretStore = {
   },
   remove(account) {
     runLinuxKeyringRecoveryOperation('remove', account);
+  },
+};
+
+function isFileStoreFallbackEnabled(): boolean {
+  return process.env[FILE_STORE_FALLBACK_DISABLED_ENV] !== '1';
+}
+
+// NOTE: Android (and any host without an @napi-rs/keyring native binding) cannot
+//       load the OS credential store, so getKeyringEntry throws before any
+//       token can be read or written. Fall back to an on-disk secret file there.
+function shouldAttemptFileStoreFallback(error: unknown): boolean {
+  if (!isFileStoreFallbackEnabled()) return false;
+  if (shouldAttemptLinuxKeyringRecovery(error)) return false;
+  return causeChainContains(
+    error,
+    /secure credential storage is unavailable|Cannot find native binding|Failed to load @napi-rs\/keyring|Unsupported @napi-rs\/keyring native binding target/i,
+  );
+}
+
+function getFileStoreSecretPath(account: string): string {
+  return join(getAuthBaseDir(), 'secrets', `${account}.json`);
+}
+
+const fileAuthSecretStore: AuthSecretStore = {
+  read(account) {
+    const path = getFileStoreSecretPath(account);
+    if (!existsSync(path)) return undefined;
+    return readFileSync(path, 'utf8');
+  },
+  write(account, payload) {
+    const path = getFileStoreSecretPath(account);
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(path, payload, { encoding: 'utf8', mode: 0o600 });
+  },
+  remove(account) {
+    const path = getFileStoreSecretPath(account);
+    rmSync(path, { force: true });
   },
 };
 
@@ -694,8 +757,12 @@ function writeSecureAuthEntry(serverName: string, entry: AuthEntry): void {
   try {
     writeSecureAuthEntryToStore(getAuthSecretStore(), serverName, entry);
   } catch (error) {
-    if (!shouldAttemptLinuxKeyringRecovery(error)) throw error;
-    writeSecureAuthEntryToStore(linuxKeyringRecoveryAuthSecretStore, serverName, entry);
+    if (shouldAttemptLinuxKeyringRecovery(error)) {
+      writeSecureAuthEntryToStore(linuxKeyringRecoveryAuthSecretStore, serverName, entry);
+      return;
+    }
+    if (!shouldAttemptFileStoreFallback(error)) throw error;
+    writeSecureAuthEntryToStore(fileAuthSecretStore, serverName, entry);
   }
 }
 
@@ -754,8 +821,13 @@ function readAuthEntry(
   try {
     entry = readAuthEntryFromStore(getAuthSecretStore(), serverName, options, behavior);
   } catch (error) {
-    if (!shouldAttemptLinuxKeyringRecovery(error)) throw error;
-    entry = readAuthEntryFromStore(linuxKeyringRecoveryAuthSecretStore, serverName, options, behavior);
+    if (shouldAttemptLinuxKeyringRecovery(error)) {
+      entry = readAuthEntryFromStore(linuxKeyringRecoveryAuthSecretStore, serverName, options, behavior);
+    } else if (shouldAttemptFileStoreFallback(error)) {
+      entry = readAuthEntryFromStore(fileAuthSecretStore, serverName, options, behavior);
+    } else {
+      throw error;
+    }
   }
 
   if (cacheable) authEntryCache.set(serverName, cloneAuthEntry(entry));
@@ -841,8 +913,13 @@ export function removeAuthEntry(serverName: string, options?: AuthStorageOptions
   try {
     removeAuthEntryFromStore(getAuthSecretStore(), serverName);
   } catch (error) {
-    if (!shouldAttemptLinuxKeyringRecovery(error)) throw error;
-    removeAuthEntryFromStore(linuxKeyringRecoveryAuthSecretStore, serverName);
+    if (shouldAttemptLinuxKeyringRecovery(error)) {
+      removeAuthEntryFromStore(linuxKeyringRecoveryAuthSecretStore, serverName);
+    } else if (shouldAttemptFileStoreFallback(error)) {
+      removeAuthEntryFromStore(fileAuthSecretStore, serverName);
+    } else {
+      throw error;
+    }
   }
   authEntryCache.delete(serverName);
   removeLegacyAuthEntry(serverName, options);

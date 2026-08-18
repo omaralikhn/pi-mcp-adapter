@@ -190,6 +190,30 @@ describe("mcp-auth", () => {
         }
       }
     })
+
+    it("falls back to the on-disk secret store when the keyring native binding is unavailable", () => {
+      const previous = process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE
+      process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = "nativebindingmissing"
+      resetTestAuthSecretStore()
+      const entry: AuthEntry = {
+        tokens: { accessToken: "file-store-token" },
+        serverUrl: "https://example.com/mcp",
+      }
+      try {
+        // NOTE: A write, read, and remove all succeed via the file store even though
+        //       the keyring throws "Cannot find native binding" on every call.
+        saveAuthEntry("native-binding-missing", entry, "https://example.com/mcp")
+        assert.deepStrictEqual(getAuthForUrl("native-binding-missing", "https://example.com/mcp"), entry)
+        removeAuthEntry("native-binding-missing")
+        assert.strictEqual(getAuthEntry("native-binding-missing"), undefined)
+      } finally {
+        if (previous === undefined) {
+          delete process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE
+        } else {
+          process.env.PI_MCP_ADAPTER_TEST_AUTH_STORE = previous
+        }
+      }
+    })
   })
 
   describe("saveAuthEntry / getAuthEntry", () => {
