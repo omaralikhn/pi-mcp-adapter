@@ -1196,6 +1196,47 @@ describe("mcpAdapter session lifecycle", () => {
     }));
   });
 
+  it("routes `/mcp-auth <server>` through extension UI in RPC mode", async () => {
+    const state = createState();
+    state.config.mcpServers.sentry = { url: "https://mcp.sentry.dev/mcp", auth: "oauth" };
+    mocks.initializeMcp.mockResolvedValue(state);
+    mocks.authenticateServer.mockResolvedValue({ ok: true, message: "authenticated" });
+
+    const { default: mcpAdapter } = await import("../index.ts");
+    const { api, handlers } = createPi();
+    mcpAdapter(api);
+
+    await handlers.get("session_start")?.({}, { hasUI: false, mode: "rpc" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const commandDef = api.registerCommand.mock.calls.find((call: any[]) => call[0] === "mcp-auth")?.[1];
+    const ui = { notify: vi.fn(), confirm: vi.fn(), input: vi.fn(), setStatus: vi.fn() };
+    await commandDef.handler("sentry", { hasUI: false, mode: "rpc", ui, cwd: "/tmp" });
+
+    const authContext = mocks.authenticateServer.mock.calls[0]?.[2];
+    expect({
+      server: mocks.authenticateServer.mock.calls[0]?.[0],
+      config: mocks.authenticateServer.mock.calls[0]?.[1],
+      hasUI: authContext?.hasUI,
+      mode: authContext?.mode,
+      runtime: mocks.authenticateServer.mock.calls[0]?.[4],
+    }).toEqual({
+      server: "sentry",
+      config: state.config,
+      hasUI: true,
+      mode: "rpc",
+      runtime: state.oauthRuntime,
+    });
+    const reconnectContext = mocks.reconnectServer.mock.calls[0]?.[1];
+    expect({
+      state: mocks.reconnectServer.mock.calls[0]?.[0],
+      hasUI: reconnectContext?.hasUI,
+      mode: reconnectContext?.mode,
+      server: mocks.reconnectServer.mock.calls[0]?.[2],
+    }).toEqual({ state, hasUI: true, mode: "rpc", server: "sentry" });
+  });
+
   it("routes `/mcp setup` to the onboarding flow", async () => {
     const state = createState();
     mocks.initializeMcp.mockResolvedValue(state);

@@ -62,6 +62,43 @@ describe("authenticateServer", () => {
     }
   });
 
+  it("authenticates through extension UI dialogs in RPC mode", async () => {
+    const authorizationUrl = "https://auth.example.com/authorize?client_id=rpc";
+    const callbackUrl = "http://localhost:3118/callback?code=code&state=state";
+    const inputController = new AbortController();
+    mocks.authenticate.mockImplementationOnce(async (_name, _url, _definition, options) => {
+      await options.onAuthorizationUrl(authorizationUrl);
+      const input = await options.onAuthorizationInput(authorizationUrl, inputController.signal);
+      expect(input).toBe(callbackUrl);
+      return "authenticated";
+    });
+    const ui = {
+      notify: vi.fn(),
+      setStatus: vi.fn(),
+      confirm: vi.fn(async () => true),
+      input: vi.fn(async () => callbackUrl),
+    };
+    const { authenticateServer } = await import("../commands.ts");
+
+    const result = await authenticateServer("sentry", {
+      mcpServers: {
+        sentry: { url: "https://mcp.sentry.dev/mcp", auth: "oauth" },
+      },
+    }, { hasUI: true, mode: "rpc", ui } as any);
+
+    expect(result).toEqual({ ok: true, message: 'OAuth authentication successful for "sentry".' });
+    expect(ui.confirm).toHaveBeenCalledWith(
+      "Authorize sentry",
+      expect.stringContaining(authorizationUrl),
+      { signal: inputController.signal },
+    );
+    expect(ui.input).toHaveBeenCalledWith(
+      "Complete sentry OAuth",
+      "Paste the full callback URL",
+      { signal: inputController.signal },
+    );
+  });
+
   it("fails OAuth authentication before requests when URL variables are missing", async () => {
     const originalUrl = process.env.MCP_AUTH_URL;
     delete process.env.MCP_AUTH_URL;

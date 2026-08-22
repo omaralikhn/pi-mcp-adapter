@@ -600,7 +600,7 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     description: "Authenticate with an MCP server (OAuth)",
     handler: async (args, ctx) => {
       const commandOwner = currentOwner;
-      const commandHasUI = ctx.hasUI;
+      const commandHasUI = ctx.hasUI || (ctx.mode === "rpc" && ctx.ui !== undefined);
       const commandCtx = {
         hasUI: commandHasUI,
         ui: commandHasUI
