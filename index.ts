@@ -704,11 +704,12 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       parameters: Type.Object({
         tool: Type.Optional(Type.String({ description: "Tool name to call (e.g., 'xcodebuild_list_sims')" })),
         args: Type.Optional(Type.Union([
-          Type.String({ description: "Arguments as a JSON string (e.g., '{\"key\": \"value\"}')" }),
-          Type.Object({}, {
-            additionalProperties: true,
+          toToolParameters({
+            type: "object",
+            additionalProperties: {},
             description: 'Arguments as a JSON object (e.g., { "key": "value" })',
-          }),
+          }) as ReturnType<typeof Type.Object>,
+          Type.String({ description: "Arguments as a JSON string (e.g., '{\"key\": \"value\"}')" }),
         ], { description: "Tool arguments as a JSON object, or as a JSON string encoding one" })),
         connect: Type.Optional(Type.String({ description: "Server name to connect (lazy connect + metadata refresh)" })),
         describe: Type.Optional(Type.String({ description: "Tool name to describe (shows parameters)" })),

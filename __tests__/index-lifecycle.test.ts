@@ -570,7 +570,7 @@ describe("mcpAdapter session lifecycle", () => {
     expect(api.registerTool).not.toHaveBeenCalledWith(expect.objectContaining({ name: "mcp" }));
   });
 
-  it("registers proxy args as string or object without patternProperties", async () => {
+  it("registers proxy args as an unrestricted object before a JSON string fallback", async () => {
     const { default: mcpAdapter } = await import("../index.ts");
     const { api } = createPi();
     mcpAdapter(api);
@@ -580,8 +580,8 @@ describe("mcpAdapter session lifecycle", () => {
 
     const argsSchema = proxyTool.parameters.properties.args;
     expect(argsSchema.anyOf).toEqual([
+      expect.objectContaining({ type: "object", additionalProperties: {} }),
       expect.objectContaining({ type: "string" }),
-      expect.objectContaining({ type: "object", additionalProperties: true }),
     ]);
     expect(JSON.stringify(argsSchema)).not.toContain("patternProperties");
   });
