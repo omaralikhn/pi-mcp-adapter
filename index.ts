@@ -888,9 +888,13 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         registerProxyTool(description);
         return;
       }
-      const activeTools = getActiveToolsIfReady();
-      if (activeTools && !activeTools.includes("mcp")) {
-        pi.setActiveTools([...activeTools, "mcp"]);
+      // NOTE: A deferred mcp tool is inactive until tool search loads it, so only
+      //       restore it when a fallback deactivation removed it.
+      if (fallbackDeactivatedTools.delete("mcp")) {
+        const activeTools = getActiveToolsIfReady();
+        if (activeTools && !activeTools.includes("mcp")) {
+          pi.setActiveTools([...activeTools, "mcp"]);
+        }
       }
       return;
     }
