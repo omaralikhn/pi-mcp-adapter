@@ -243,7 +243,7 @@ describe("proxy auto auth", () => {
     const statuses: string[] = [];
     const state = {
       config: {
-        settings: { autoAuth: true, toolPrefix: "mcp", showStatusIcon: false },
+        settings: { autoAuth: true, toolPrefix: "mcp" },
         mcpServers: {
           demo: { url: "https://api.example.com/mcp", auth: "oauth" },
         },
@@ -258,7 +258,7 @@ describe("proxy auto auth", () => {
 
     const result = await executeConnect(state, "demo");
 
-    expect(statuses).toContain("MCP: connecting to demo...");
+    expect(statuses).toEqual([]);
     expect(mocks.authenticate).toHaveBeenCalledWith(
       "demo",
       "https://api.example.com/mcp",
@@ -405,7 +405,7 @@ describe("proxy auto auth", () => {
     const statuses: string[] = [];
     const state = {
       config: {
-        settings: { autoAuth: true, toolPrefix: "server", showStatusIcon: false },
+        settings: { autoAuth: true, toolPrefix: "server" },
         mcpServers: {
           demo: { url: "https://api.example.com/mcp", auth: "oauth" },
         },
@@ -432,7 +432,7 @@ describe("proxy auto auth", () => {
     const controller = new AbortController();
     const result = await executeCall(state, "demo_search", { q: "hello" }, "demo", undefined, controller.signal);
 
-    expect(statuses).toContain("MCP: connecting to demo...");
+    expect(statuses).toEqual([]);
     expect(mocks.authenticate).toHaveBeenCalledWith(
       "demo",
       "https://api.example.com/mcp",

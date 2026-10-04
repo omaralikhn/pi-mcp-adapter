@@ -291,11 +291,6 @@ export function formatAuthRequiredMessage(
   return template ? template.replaceAll("${server}", serverName) : defaultMessage;
 }
 
-export function formatMcpStatus(config: Pick<McpConfig, "settings">, message: string): string | undefined {
-  if (config.settings?.mcpFooterStatus === "off") return undefined;
-  return `${config.settings?.showStatusIcon === false ? "MCP: " : "🔌 MCP: "}${message}`;
-}
-
 /**
  * Extract the adapter-owned UI stream mode from tool metadata.
  */

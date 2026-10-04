@@ -280,26 +280,6 @@ describe("lazy-keep-alive initializeMcp integration", () => {
     expect(consoleError).toHaveBeenCalledWith("MCP: Failed to connect to srv: stderr startup failed");
   });
 
-  it("honors the status icon opt-out during eager startup", async () => {
-    mkdirSync(tempDir, { recursive: true });
-    writeFileSync(mocks.cachePath, JSON.stringify({ version: 1, servers: {} }));
-    mocks.config = {
-      settings: { showStatusIcon: false },
-      mcpServers: { srv: { command: "demo", lifecycle: "eager" } },
-    };
-    const { initializeMcp } = await import("../init.ts");
-    const ui = { setStatus: vi.fn(), notify: vi.fn() };
-
-    await initializeMcp({ getFlag: vi.fn(() => undefined) } as any, {
-      cwd: tempDir,
-      hasUI: true,
-      mode: "tui",
-      ui,
-    } as any);
-
-    expect(ui.setStatus).toHaveBeenCalledWith("mcp", "MCP: connecting to 1 servers...");
-  });
-
   it("suppresses successful startup notices when configured", async () => {
     mkdirSync(tempDir, { recursive: true });
     writeFileSync(mocks.cachePath, JSON.stringify({ version: 1, servers: {} }));
@@ -320,15 +300,21 @@ describe("lazy-keep-alive initializeMcp integration", () => {
     expect(ui.notify).not.toHaveBeenCalledWith("MCP: 1 servers connected (0 tools)", "info");
   });
 
-  it("keeps startup notices enabled independently of the footer setting by default", async () => {
+  it("shows startup notices without reporting MCP status to the footer", async () => {
     mkdirSync(tempDir, { recursive: true });
     writeFileSync(mocks.cachePath, JSON.stringify({ version: 1, servers: {} }));
     mocks.config = {
-      settings: { mcpFooterStatus: "off" },
+      settings: {},
       mcpServers: { srv: { command: "demo", lifecycle: "eager" } },
     };
     const { initializeMcp } = await import("../init.ts");
-    const ui = { setStatus: vi.fn(), notify: vi.fn() };
+    const footerUpdates: unknown[][] = [];
+    const ui = {
+      setStatus(...args: unknown[]) {
+        footerUpdates.push(args);
+      },
+      notify: vi.fn(),
+    };
 
     await initializeMcp({ getFlag: vi.fn(() => undefined) } as any, {
       cwd: tempDir,
@@ -338,7 +324,7 @@ describe("lazy-keep-alive initializeMcp integration", () => {
     } as any);
 
     expect(ui.notify).toHaveBeenCalledWith("MCP: 1 servers connected (0 tools)", "info");
-    expect(ui.setStatus).toHaveBeenCalledWith("mcp", undefined);
+    expect(footerUpdates).toEqual([]);
   });
 
   it("keeps startup connection failures visible when success notices are suppressed", async () => {

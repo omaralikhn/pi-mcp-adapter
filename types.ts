@@ -459,7 +459,6 @@ export interface McpOutputGuardSettings {
 // Settings
 export type ToolPrefix = "server" | "none" | "short" | "mcp";
 export type HostConfigDiscovery = "off" | "prompt" | "on";
-export type McpFooterStatus = "full" | "compact" | "off";
 
 export interface McpTraceSettings {
   /** Enable tracing for all servers unless a server sets trace to false. */
@@ -491,10 +490,6 @@ export interface McpToolApprovalRequest {
 
 export interface McpSettings {
   toolPrefix?: ToolPrefix;
-  /** Show the plug prefix in MCP status and connection text (default: true). Set to false to disable it. */
-  showStatusIcon?: boolean;
-  /** Footer status verbosity: full details, compact connected/enabled count, or no footer status. Defaults to full. */
-  mcpFooterStatus?: McpFooterStatus;
   /** Show successful startup connection notifications. Defaults to true. */
   notifyOnStartupConnect?: boolean;
   /** Discover detected host-specific MCP configs only when explicitly enabled. */
